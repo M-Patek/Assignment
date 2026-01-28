@@ -2,36 +2,27 @@ import re
 import time
 from playwright.sync_api import sync_playwright, Page, TimeoutError
 
-# ================= 最终封装配置区域 =================
+# ================= 终极封装配置区域 =================
 CONFIG = {
-    # 接码平台地址
     "SMS_URL": "https://hero-sms.com/cn/services", 
-    
-    # 根据主人提供的最新截图精准封装的选择器
     "SELECTORS": {
-        # 匹配服务列表里那个紫色的价格按钮 (如 USA +1 行的按钮)
+        # 服务列表选择
+        "REGION_INDONESIA": "text='Indonesia +62'", # 示例：点击印尼地区
         "BTN_GET_NUMBER": ".services_grid .btn-primary", 
         
-        # 匹配号码右侧那个带有 X 图标的取消按钮
-        "BTN_CANCEL": ".use-free-number__choise-number .icon-close",
+        # 订单卡片（基于主人 13:03:10 截图）
+        "CARD_ROOT": ".services-el.cardTop", 
+        "PHONE_TEXT": ".services-el.cardTop .use-free-number__choise-number b",
+        "BTN_CANCEL": ".services-el.cardTop .icon-close",
         
-        # 最新订单的整行容器 (右侧订单列表)
-        "LATEST_ORDER_ROW": ".use-free-number__list",
-        
-        # 电话号码文本 (位于 b 标签中)
-        "PHONE_TEXT": ".use-free-number__choise-number b",
-        
-        # 验证码文本区域 (监控那个显示“复制提供给你的号码...”的 p 标签)
-        "CODE_TEXT": ".alert.none-sms p",
-        
-        # 页面遮罩层/加载气泡
+        # 验证码监控
+        "CODE_TEXT": ".use-free-number__messages .alert p",
         "TOAST_MASK": ".v-toast"
     },
     
-    # 账号列表 (请主人自行替换)
+    # 待处理账号
     "ACCOUNTS": [
-        {"email": "cat_master_01@gmail.com", "pwd": "Password123", "recovery": "rec01@gmail.com"},
-        {"email": "cat_master_02@gmail.com", "pwd": "Password123", "recovery": "rec02@gmail.com"},
+        {"email": "your_email@gmail.com", "pwd": "your_password", "recovery": "rec@gmail.com"},
     ]
 }
 
@@ -42,128 +33,110 @@ class GoogleAutoVerifier:
         self.google_page = None
 
     def init_sms_page(self):
-        """初始化接码平台页面"""
-        print("正在打开接码平台...")
+        """初始化并登录接码平台"""
         self.sms_page = self.context.new_page()
         self.sms_page.goto(CONFIG["SMS_URL"])
-        print("✅ 接码平台就绪，主人喵！请确保已手动登录并有余额。")
+        print("✅ 接码平台已打开。请主人手动登录，并在看到号码列表后按回车喵！")
 
-    def get_phone_number(self):
-        """从接码平台获取一个新号码并进行清理"""
+    def get_clean_phone(self):
+        """获取并处理号码：除去地区码(+62)，仅保留数字部分"""
         page = self.sms_page
-        selectors = CONFIG["SELECTORS"]
-        
-        # 检查并等待加载遮罩消失，防止点击被拦截
-        if page.is_visible(selectors["TOAST_MASK"]):
-            page.wait_for_selector(selectors["TOAST_MASK"], state="hidden", timeout=5000)
-        
-        print("🔄 正在请求新号码...")
-        page.click(selectors["BTN_GET_NUMBER"])
+        sel = CONFIG["SELECTORS"]
         
         try:
-            page.wait_for_selector(selectors["PHONE_TEXT"], state="visible", timeout=15000)
-            raw_phone = page.inner_text(selectors["PHONE_TEXT"])
+            # 1. 选择印度尼西亚（如果需要脚本点击）
+            # page.click(sel["REGION_INDONESIA"]) 
             
-            # 自动清理非数字字符，方便谷歌填入 (如 +62 (831) -> 62831)
-            clean_phone = re.sub(r'\D', '', raw_phone)
-            print(f"📱 获取到原始号码: {raw_phone} -> 处理后: {clean_phone}")
+            # 2. 点击购买
+            page.click(sel["BTN_GET_NUMBER"])
+            
+            # 3. 等待卡片和号码出现
+            page.wait_for_selector(sel["PHONE_TEXT"], state="visible", timeout=15000)
+            raw_phone = page.inner_text(sel["PHONE_TEXT"]) # 示例: +62 (895) 31157091
+            
+            # 核心逻辑：除去地区码 +62，只保留纯数字部分
+            # 先去除非数字
+            all_digits = re.sub(r'\D', '', raw_phone) 
+            # 如果以 62 开头，则截断它
+            if all_digits.startswith("62"):
+                clean_phone = all_digits[2:]
+            else:
+                clean_phone = all_digits
+                
+            print(f"📱 捕获原始号码: {raw_phone} -> 提取纯数字: {clean_phone}")
             return clean_phone
-            
-        except TimeoutError:
-            print("❌ 获取号码超时喵，请检查页面状态或余额。")
+        except Exception as e:
+            print(f"❌ 获取号码失败: {e}")
             return None
 
-    def wait_for_sms_code(self, timeout=120):
-        """轮询监控 DOM 变化抓取验证码"""
-        page = self.sms_page
-        selectors = CONFIG["SELECTORS"]
-        
-        print(f"⏳ 正在监控 DOM 变化等待验证码 (限时 {timeout} 秒)...")
-        start_time = time.time()
-        
-        while time.time() - start_time < timeout:
-            # 获取监控区域的最新文本
-            content = page.inner_text(selectors["CODE_TEXT"])
-            
-            # 寻找 6 位连续数字的正则
-            match = re.search(r'\b(\d{6})\b', content)
-            
-            if match:
-                code = match.group(1)
-                print(f"📨 发现目标验证码: {code}")
-                return code
-            
-            # 稍作休息，模拟猫咪潜伏，减少 CPU 占用
-            page.wait_for_timeout(3000) 
-            
-        print("❌ 等待超时，没抓到验证码喵...")
-        return None
-
-    def process_account(self, account):
-        """完整的自动化流程封装"""
-        email = account["email"]
-        print(f"\n🚀 开始处理账号: {email}")
-        
+    def process_google_login(self, account):
+        """自动登录谷歌账户"""
         page = self.context.new_page()
         self.google_page = page
         
         try:
-            # 1. 登录 Google
+            print(f"🚀 正在登录 Google: {account['email']}")
             page.goto("https://accounts.google.com/signin")
-            page.fill('input[type="email"]', email)
+            
+            # 输入账号
+            page.fill('input[type="email"]', account["email"])
             page.keyboard.press("Enter")
             
+            # 等待并输入密码
             page.wait_for_selector('input[type="password"]', state="visible")
             page.fill('input[type="password"]', account["pwd"])
             page.keyboard.press("Enter")
             
-            # 2. 判断是否需要接码
+            # 检测是否触发手机验证
             try:
-                page.wait_for_selector('input[type="tel"]', timeout=8000)
-                print("⚠️ 检测到手机验证拦截，启动联动接码...")
+                page.wait_for_selector('input[type="tel"]', timeout=10000)
+                print("⚠️ 触发安全验证，准备接码联动...")
                 
-                phone = self.get_phone_number()
-                if not phone: return
-                
-                # 填入号码
-                page.fill('input[type="tel"]', phone)
-                page.keyboard.press("Enter")
-                
-                # 3. 等待并填入验证码
-                code = self.wait_for_sms_code()
-                if code:
-                    self.google_page.bring_to_front()
-                    # 适配谷歌验证码输入框的常见选择器
-                    page.fill('input[name="code"], input[type="tel"]#idvAnyPhonePin', code)
+                # 获取处理后的号码
+                phone_to_fill = self.get_clean_phone()
+                if phone_to_fill:
+                    page.fill('input[type="tel"]', phone_to_fill)
                     page.keyboard.press("Enter")
-                    print(f"🎉 账号 {email} 验证码提交成功！")
-                    page.wait_for_timeout(5000)
+                    
+                    # 等待并填入验证码
+                    code = self.wait_for_sms()
+                    if code:
+                        page.fill('input[name="code"]', code)
+                        page.keyboard.press("Enter")
+                        print(f"🎉 账号 {account['email']} 验证通过！")
                 
             except TimeoutError:
-                print(f"✅ 账号 {email} 无需接码验证。")
+                print(f"✅ 账号 {account['email']} 无需验证，登录成功。")
 
         except Exception as e:
-            print(f"💥 运行报错: {str(e)}")
-            page.screenshot(path=f"error_{email}.png")
+            print(f"💥 流程中断: {e}")
         finally:
             page.close()
 
+    def wait_for_sms(self, timeout=120):
+        """轮询监控验证码"""
+        start = time.time()
+        while time.time() - start < timeout:
+            content = self.sms_page.inner_text(CONFIG["SELECTORS"]["CODE_TEXT"])
+            match = re.search(r'\b(\d{6})\b', content)
+            if match:
+                return match.group(1)
+            self.sms_page.wait_for_timeout(3000)
+        return None
+
 def run_bot():
     with sync_playwright() as p:
-        # 禁用自动化特征避免被风控
         browser = p.chromium.launch(headless=False, args=["--disable-blink-features=AutomationControlled"])
-        context = browser.new_context(viewport={"width": 1280, "height": 720})
-        
+        context = browser.new_context()
         bot = GoogleAutoVerifier(context)
-        bot.init_sms_page()
         
-        input("🔴 请在 HeroSMS 页面手动登录好，确认看到订单列表后，按回车开始自动执行")
+        bot.init_sms_page()
+        input("🔴 请确保已在 HeroSMS 登录并选好地区，按回车开始喵！")
         
         for acc in CONFIG["ACCOUNTS"]:
-            bot.process_account(acc)
-            time.sleep(5) # 账号切换间隔
+            bot.process_google_login(acc)
+            time.sleep(5)
             
-        print("🏁 所有任务都处理完成")
         browser.close()
 
 if __name__ == "__main__":
