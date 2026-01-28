@@ -337,7 +337,7 @@ if __name__ == "__main__":
         bot = GoogleBot()
         print(f"✨ 准备处理 {len(account_list)} 个账号...")
         print(f"🗺️ 目标国家ID: {CONFIG['COUNTRY_ID']}")
-        print("🕵️‍♀️ AAB 级隐身模式: 已激活")
+        print("🕵️‍♀️ AAB 隐身模式: 已激活")
         
         for acc in account_list:
             bot.process_account(acc)
