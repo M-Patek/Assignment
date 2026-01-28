@@ -23,7 +23,7 @@ CONFIG = {
 }
 
 def load_accounts_from_file(file_path):
-    """🐱 读取账号文件的助手函数"""
+    """读取账号文件的助手函数"""
     accounts = []
     if not os.path.exists(file_path):
         print(f"❌ 找不到文件: {file_path}")
