@@ -1,1 +1,2 @@
 pip install requests playwright
+playwright install
