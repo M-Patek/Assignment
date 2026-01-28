@@ -6,7 +6,7 @@ import requests
 from playwright.sync_api import sync_playwright, TimeoutError
 
 # =======================================================================================
-# === I. AAB 级核心隐身补丁 (Stealth JS Injection) - 优化版 ===
+# === I. AAB 核心隐身补丁 (Stealth JS Injection)  ===
 # =======================================================================================
 STEALTH_JS = """
 (() => {
@@ -81,7 +81,7 @@ def human_type(page, selector, text):
         for char in text:
             page.type(selector, char, delay=random.uniform(50, 150))
     except Exception as e:
-        print(f"⚠️ 输入模拟遇到小问题: {e}")
+        print(f"⚠️ 输入模拟遇到问题: {e}")
         # 降级方案：如果逐字输入失败，回退到 fill 但保留前后延迟
         page.fill(selector, text)
 
