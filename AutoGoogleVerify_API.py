@@ -4,31 +4,57 @@ import os
 import requests
 from playwright.sync_api import sync_playwright, TimeoutError
 
+# ================= 隐身代码 =================
+# 这段 JS 会在每个页面加载前注入，欺骗网页的检测机制
+STEALTH_JS = """
+(() => {
+    // 1. 抹除 webdriver 标记
+    Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+    });
+
+    // 2. 伪造 Chrome 运行时对象
+    window.chrome = {
+        runtime: {},
+        loadTimes: function() {},
+        csi: function() {},
+        app: {}
+    };
+
+    // 3. 伪造插件列表 (模拟真实用户)
+    Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5],
+    });
+
+    // 4. 伪造语言设置
+    Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en'],
+    });
+
+    // 5. 覆盖权限查询 (欺骗通知权限检测)
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) => (
+        parameters.name === 'notifications' ?
+        Promise.resolve({ state: 'denied', onchange: null }) :
+        originalQuery(parameters)
+    );
+})();
+"""
+
 # ================= ⚙️ 核心配置区域 =================
 CONFIG = {
-    # ✅ API Key
     "API_KEY": "86b44ef524AAb260c77481dd0fb97A1b",
-    
-    # HeroSMS 官方接口
     "BASE_URL": "https://hero-sms.com/stubs/handler_api.php",
-    
-    # 服务代码 (Google = 'go')
     "SERVICE_CODE": "go",
-    
-    # ✅ 国家 ID: 智利 (Chile)
-    "COUNTRY_ID": "151", 
-    
-    # 📂 文件路径
+    "COUNTRY_ID": "151",  # 智利
     "ACCOUNT_FILE": "accounts.txt",
     "FAILED_FILE": "failed_accounts.txt"
 }
 
 def load_accounts_from_file(file_path):
-    """读取账号文件的助手函数"""
     accounts = []
     if not os.path.exists(file_path):
         print(f"❌ 找不到文件: {file_path}")
-        print("👉 请在同目录下新建 accounts.txt，格式: 邮箱:密码")
         return []
     
     with open(file_path, "r", encoding="utf-8") as f:
@@ -43,20 +69,18 @@ def load_accounts_from_file(file_path):
                     "recovery": parts[2].strip() if len(parts) > 2 else ""
                 }
                 accounts.append(acc)
-    print(f"✅ 成功加载了 {len(accounts)} 个账号！")
+    print(f"✅ 成功加载了 {len(accounts)} 个账号")
     return accounts
 
 def log_failed_account(email):
-    """记录失败账号"""
     try:
         with open(CONFIG["FAILED_FILE"], "a", encoding="utf-8") as f:
             f.write(f"{email}\n")
-        print(f"📝 已将 {email} 加入失败名单: {CONFIG['FAILED_FILE']}")
+        print(f"📝 已将 {email} 加入失败名单")
     except Exception as e:
         print(f"❌ 写入失败文件时出错: {e}")
 
 class HeroSMSClient:
-    """API 助手"""
     def __init__(self):
         self.api_key = CONFIG["API_KEY"]
         self.base_url = CONFIG["BASE_URL"]
@@ -118,9 +142,25 @@ class GoogleBot:
             
             try:
                 with sync_playwright() as p:
-                    # ✨ 开启剪贴板权限，为了后面的“粘贴”操作
-                    browser = p.chromium.launch(headless=False, args=["--disable-blink-features=AutomationControlled"])
-                    context = browser.new_context(permissions=["clipboard-read", "clipboard-write"])
+                    # 反检测启动参数
+                    browser = p.chromium.launch(
+                        headless=False, 
+                        args=[
+                            "--disable-blink-features=AutomationControlled", # 禁用Blink自动化控制特征
+                            "--no-sandbox",
+                            "--disable-infobars"
+                        ],
+                        ignore_default_args=["--enable-automation"] # 移除"正由自动测试软件控制"提示
+                    )
+                    
+                    context = browser.new_context(
+                        permissions=["clipboard-read", "clipboard-write"],
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" # 伪造UA
+                    )
+                    
+                    # 注入隐身脚本
+                    context.add_init_script(STEALTH_JS)
+                    
                     page = context.new_page()
                     
                     try:
@@ -135,76 +175,53 @@ class GoogleBot:
                         
                         # --- 2. 验证流程 ---
                         try:
-                            # 等待检测
                             page.wait_for_selector('input[type="tel"]', timeout=8000)
                             print("⚠️ 触发验证！准备接码...")
                             
-                            # 内部换号循环
                             phone_success = False
                             for phone_attempt in range(3):
                                 if phone_attempt > 0: print(f"🔄 换号重试 (第 {phone_attempt+1} 次)...")
                                 
-                                # 🔥🔥🔥 关键修正：确保在填手机号的界面 🔥🔥🔥
-                                # 如果当前页面显示的是验证码输入框 (name="code" 或 id="idvAnyPhonePin")
-                                # 说明上次可能没退出去，或者是误判了
+                                # 回退到填号码界面
                                 if page.is_visible('input[name="code"]') or page.is_visible('input[id*="Pin"]'):
-                                    print("🛑 检测到当前处于‘输入验证码’界面，正在执行后退操作...")
-                                    # 模拟浏览器后退，回到填手机号界面
+                                    print("🛑 正在回退到号码输入框...")
                                     page.go_back() 
-                                    page.wait_for_timeout(2000) # 等页面缓一下
-                                    
-                                    # 再次确认是否回到了手机号输入框
+                                    page.wait_for_timeout(2000)
                                     if not page.is_visible('input[type="tel"]'):
-                                        print("❌ 后退失败，无法找到手机号输入框，强行重启浏览器...")
-                                        raise Exception("界面状态异常")
+                                        raise Exception("回退失败")
                                 
-                                # 获取号码
                                 order_id, raw_number = self.sms_api.get_number()
                                 if not order_id: 
                                     time.sleep(2)
                                     continue
                                 
-                                # 清洗号码
                                 clean_digits = re.sub(r'\D', '', str(raw_number))
                                 final_phone = f"+{clean_digits}"
                                 print(f"📱 填入号码: {final_phone}")
                                 
-                                # 填入
                                 page.fill('input[type="tel"]', "")
                                 page.fill('input[type="tel"]', final_phone)
                                 page.keyboard.press("Enter")
                                 
-                                # 查码
                                 code = self.sms_api.get_sms_code(order_id)
                                 if code:
-                                    #关键升级：模拟人工粘贴
                                     try:
-                                        # 1. 把验证码写入剪贴板
                                         page.evaluate(f"navigator.clipboard.writeText('{code}')")
-                                        # 2. 聚焦输入框
-                                        try:
-                                            page.focus('input[name="code"]')
-                                        except:
-                                            page.focus('input[id*="Pin"]')
-                                        # 3. 模拟按下 Ctrl+V
-                                        print(f"📋 正在模拟人工粘贴验证码: {code}")
+                                        try: page.focus('input[name="code"]')
+                                        except: page.focus('input[id*="Pin"]')
+                                        print(f"📋 模拟人工粘贴验证码: {code}")
                                         page.keyboard.press("Control+V")
-                                    except Exception as paste_err:
-                                        print(f"⚠️ 粘贴失败，降级为普通输入: {paste_err}")
-                                        try:
-                                            page.fill('input[name="code"]', code)
-                                        except:
-                                            page.fill('input[id*="Pin"]', code)
+                                    except:
+                                        try: page.fill('input[name="code"]', code)
+                                        except: page.fill('input[id*="Pin"]', code)
 
                                     page.keyboard.press("Enter")
                                     
-                                    # 检查回弹
-                                    print("提交后观察中...")
+                                    print("🕵️‍♀️ 提交后观察中...")
                                     page.wait_for_timeout(5000)
                                     
-                                    # 再次检查：如果还在输入手机号界面，说明被踢回来了
                                     if page.is_visible('input[type="tel"]') and not page.is_visible('input[name="code"]'):
-                                        print("🔄 验证被弹回 (Google 没相中这个号)，换号再试...")
+                                        print("🔄 验证被弹回，换号...")
                                         self.sms_api.set_status_cancel(order_id)
                                         continue 
                                     else:
@@ -222,7 +239,7 @@ class GoogleBot:
                                 raise Exception("多次换号验证均失败")
                                 
                         except TimeoutError:
-                            print("✅ 未检测到手机验证框，登录顺畅喵。")
+                            print("✅ 未检测到手机验证框，登录完成。")
                         
                         print(f"✨ 账号 {email} 处理完毕！")
                         return 
@@ -237,19 +254,19 @@ class GoogleBot:
                 print(f"⚠️ 本次尝试失败，正在重置... ({e})")
                 time.sleep(3)
         
-        # 如果循环结束还没 return，说明彻底失败了
         print(f"❌ 账号 {email} 彻底失败。")
-        log_failed_account(email) # 🔥 记录到小本本
+        log_failed_account(email)
 
 if __name__ == "__main__":
     account_list = load_accounts_from_file(CONFIG["ACCOUNT_FILE"])
     
     if not account_list:
-        print("🛑 没有加载到账号。")
+        print("🛑 没有加载到账号喵。")
     else:
         bot = GoogleBot()
         print(f"✨ 准备处理 {len(account_list)} 个账号...")
         print(f"🗺️ 目标: 智利 (ID: {CONFIG['COUNTRY_ID']})")
+        print("🕵️‍♀️ 隐身模式: 已开启")
         
         for acc in account_list:
             bot.process_account(acc)
