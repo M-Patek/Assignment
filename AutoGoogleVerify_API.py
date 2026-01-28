@@ -6,8 +6,8 @@ from playwright.sync_api import sync_playwright, TimeoutError
 
 # ================= ⚙️ 核心配置区域 =================
 CONFIG = {
-    # ✅ API Key (主人之前的)
-    "API_KEY": "86b44ef524AAb260c77481dd0fb97A1b",
+    # ✅ API Key
+    "API_KEY": "",
     
     # HeroSMS 官方接口
     "BASE_URL": "https://hero-sms.com/stubs/handler_api.php",
@@ -15,7 +15,7 @@ CONFIG = {
     # 服务代码 (Google = 'go')
     "SERVICE_CODE": "go",
     
-    # 国家 ID (6=印尼, 187=美国)
+    # 国家 ID (6=印尼, 187=美国,16=英国)
     "COUNTRY_ID": "6", 
     
     # 📂 账号文件路径
@@ -26,8 +26,8 @@ def load_accounts_from_file(file_path):
     """🐱 读取账号文件的助手函数"""
     accounts = []
     if not os.path.exists(file_path):
-        print(f"❌ 哎呀，找不到文件: {file_path}")
-        print("👉 请在同目录下新建 accounts.txt，格式: 邮箱:密码:辅助邮箱")
+        print(f"❌ 找不到文件: {file_path}")
+        print("👉 请在同目录下新建 accounts.txt，格式: 邮箱:密码")
         return []
     
     with open(file_path, "r", encoding="utf-8") as f:
@@ -48,11 +48,11 @@ def load_accounts_from_file(file_path):
             else:
                 print(f"⚠️ 跳过格式错误的行: {line}")
                 
-    print(f"✅ 成功加载了 {len(accounts)} 个账号喵！")
+    print(f"✅ 成功加载了 {len(accounts)} 个账号！")
     return accounts
 
 class HeroSMSClient:
-    """🐱 API 助手：负责买号和查短信"""
+    """ API 助手：负责买号和查短信"""
     def __init__(self):
         self.api_key = CONFIG["API_KEY"]
         self.base_url = CONFIG["BASE_URL"]
@@ -80,8 +80,8 @@ class HeroSMSClient:
             if len(parts) >= 3:
                 return parts[1], parts[2]
         
-        if result == "NO_NUMBERS": print("❌ 无号码库存喵。")
-        elif result == "NO_BALANCE": print("❌ 余额不足喵。")
+        if result == "NO_NUMBERS": print("❌ 无号码库存。")
+        elif result == "NO_BALANCE": print("❌ 余额不足。")
         else: print(f"❌ API 错误: {result}")
         return None, None
 
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     account_list = load_accounts_from_file(CONFIG["ACCOUNT_FILE"])
     
     if not account_list:
-        print("🛑 没有加载到账号，脚本停止喵。")
+        print("🛑 没有加载到账号，脚本停止。")
     else:
         bot = GoogleBot()
         print(f"✨ 准备处理 {len(account_list)} 个账号...")
@@ -185,4 +185,4 @@ if __name__ == "__main__":
             print("💤 休息 5 秒...")
             time.sleep(5)
             
-        print("🏁 全部完成喵！")
+        print("🏁 全部完成！")
