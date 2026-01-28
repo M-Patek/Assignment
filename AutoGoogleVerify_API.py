@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright, TimeoutError
 # ================= ⚙️ 核心配置区域 =================
 CONFIG = {
     # ✅ API Key
-    "API_KEY": "",
+    "API_KEY": "YOUR_API_KEY_HERE",
     
     # HeroSMS 官方接口
     "BASE_URL": "https://hero-sms.com/stubs/handler_api.php",
