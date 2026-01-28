@@ -1,4 +1,4 @@
-# 🐱 AutoGoogleVerify - 强力隐身版 Google 账号验证系统
+# AutoGoogleVerify - 隐身版 Google 账号验证系统
 
 ## 📖 项目简介
 本项目是一个基于 **Playwright** 和 **Anaconda** 的高级自动化脚本，专为批量处理 Google 账号登录及手机号验证而设计。
@@ -77,7 +77,7 @@ neko@gmail.com:fish456:recovery@email.com
 
 ## 🚀 运行脚本 (Usage)
 
-一切准备就绪后，运行以下命令启动机器人喵：
+一切准备就绪后，运行以下命令启动机器人：
 
 ```bash
 python AutoGoogleVerify_API.py
