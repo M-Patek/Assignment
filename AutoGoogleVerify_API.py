@@ -6,39 +6,48 @@ import requests
 from playwright.sync_api import sync_playwright, TimeoutError
 
 # =======================================================================================
-# === I. AAB 级核心隐身补丁 (Stealth JS Injection) ===
+# === I. AAB 级核心隐身补丁 (Stealth JS Injection) - 优化版 ===
 # =======================================================================================
-# 移植自 AAB 框架，用于深度伪造浏览器指纹，对抗 Google 的自动化检测
 STEALTH_JS = """
 (() => {
-    // 1. 深度抹除 webdriver 标记 (不仅是简单的 delete)
-    const newProto = navigator.__proto__;
-    delete newProto.webdriver;
-    navigator.__proto__ = newProto;
+    // 1. 更彻底且安全地移除 webdriver 属性
+    Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined
+    });
 
-    // 2. 伪造硬件并发数与内存 (模拟真实 PC)
-    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
-    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+    // 2. 伪造 Chrome 运行时对象 (补全结构，避免被简单检测)
+    if (!window.chrome) {
+        window.chrome = {
+            runtime: {},
+            loadTimes: function() {},
+            csi: function() {},
+            app: {
+                isInstalled: false,
+                InstallState: {
+                    DISABLED: 'disabled',
+                    INSTALLED: 'installed',
+                    NOT_INSTALLED: 'not_installed'
+                },
+                RunningState: {
+                    CANNOT_RUN: 'cannot_run',
+                    READY_TO_RUN: 'ready_to_run',
+                    RUNNING: 'running'
+                }
+            }
+        };
+    }
 
-    // 3. 伪造 Chrome 运行时对象 (欺骗 Google 账号系统的关键)
-    window.chrome = {
-        runtime: {},
-        loadTimes: function() {},
-        csi: function() {},
-        app: {}
-    };
-
-    // 4. 伪造插件列表与语言 (模拟标准中文用户环境)
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-    Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
-
-    // 5. 覆盖 Permissions API (防止通过通知权限反查)
+    // 3. 覆盖 Permissions API (防止通过通知权限反查自动化状态)
     const originalQuery = window.navigator.permissions.query;
     window.navigator.permissions.query = (parameters) => (
         parameters.name === 'notifications' ?
         Promise.resolve({ state: Notification.permission }) :
         originalQuery(parameters)
     );
+    
+    // 4. 这里的 Plugins 和 Languages 伪造已被移除。
+    // Playwright 默认的指纹通常比拙劣的伪造（如 [1,2,3]）更安全。
+    // 如果需要高级指纹，建议后续引入 playwright-stealth 库。
 })();
 """
 
@@ -178,11 +187,12 @@ class GoogleBot:
             try:
                 with sync_playwright() as p:
                     # --- A. 浏览器启动配置 (AAB 级隐身) ---
+                    # 优化：移除了 --no-sandbox，这通常是服务器用的，本地跑容易被检测
                     browser = p.chromium.launch(
                         headless=False,  # 建议开启界面以观察
+                        # proxy={"server": "http://user:pass@ip:port"}, # 如果还是弹验证，请务必在这里填入代理IP！
                         args=[
                             "--disable-blink-features=AutomationControlled", # 核心：禁用自动化控制特征
-                            "--no-sandbox",
                             "--disable-infobars",
                             "--start-maximized",
                             "--lang=zh-CN,zh" # 强制中文语言环境
@@ -191,9 +201,10 @@ class GoogleBot:
                     )
                     
                     # --- B. 上下文配置 ---
+                    # 优化：移除了硬编码的 user_agent。
+                    # 让 Playwright 使用内核自带的 UA，确保 UA 版本与浏览器内核版本完美匹配。
                     context = browser.new_context(
                         viewport={'width': 1920, 'height': 1080}, # 固定分辨率防止指纹变动
-                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                         permissions=["clipboard-read", "clipboard-write"] # 允许剪贴板
                     )
                     
