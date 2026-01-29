@@ -86,7 +86,7 @@ CONFIG = {
     "API_KEY": "86b44ef524AAb260c77481dd0fb97A1b", # 您的 API Key
     "BASE_URL": "https://hero-sms.com/stubs/handler_api.php",
     "SERVICE_CODE": "go",   # Google 项目代码
-    "COUNTRY_ID": "151",    # 智利
+    "COUNTRY_ID": "6",    # 智利
     "ACCOUNT_FILE": "accounts.txt",
     "FAILED_FILE": "failed_accounts.txt"
 }
