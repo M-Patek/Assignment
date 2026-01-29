@@ -6,48 +6,76 @@ import requests
 from playwright.sync_api import sync_playwright, TimeoutError
 
 # =======================================================================================
-# === I. AAB 核心隐身补丁 (Stealth JS Injection)  ===
+# === I. AAB 核心隐身补丁 (Stealth JS Injection - Enhanced V2.0)  ===
 # =======================================================================================
 STEALTH_JS = """
 (() => {
-    // 1. 更彻底且安全地移除 webdriver 属性
-    Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined
+    const defineProperty = Object.defineProperty;
+    
+    // 1. 深度移除 Webdriver 标记 (防止通过原型链反查)
+    delete navigator.webdriver;
+    defineProperty(navigator, 'webdriver', { get: () => undefined });
+    
+    // 2. 硬件指纹欺骗 (Hardware Concurrency & Memory)
+    // Headless 环境常暴露核心数不一致或内存过小，强制伪装成主流配置 (8核/8GB)
+    defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+    defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+
+    // 3. WebGL 指纹重映射 (关键：防止识别为 SwiftShader/Headless)
+    const getParameter = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function(parameter) {
+        // 37445: UNMASKED_VENDOR_WEBGL
+        // 37446: UNMASKED_RENDERER_WEBGL
+        if (parameter === 37445) return 'Intel Inc.';
+        if (parameter === 37446) return 'Intel(R) Iris(R) Xe Graphics'; 
+        return getParameter.apply(this, [parameter]);
+    };
+
+    // 4. 伪造 Chrome 运行时 (补全 connect/sendMessage 等常用接口)
+    if (!window.chrome) {
+        window.chrome = {};
+    }
+    const chromeMock = {
+        runtime: {
+            connect: () => {},
+            sendMessage: () => {},
+            PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux', OPENBSD: 'openbsd' },
+            PlatformArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' }
+        },
+        app: {
+            isInstalled: false,
+            InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+            RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
+            getDetails: () => {},
+            getIsInstalled: () => {},
+            installState: () => {},
+            runningState: () => {}
+        },
+        csi: () => {},
+        loadTimes: () => {}
+    };
+    Object.keys(chromeMock).forEach(key => {
+        if (!window.chrome[key]) {
+            window.chrome[key] = chromeMock[key];
+        }
     });
 
-    // 2. 伪造 Chrome 运行时对象 (补全结构，避免被简单检测)
-    if (!window.chrome) {
-        window.chrome = {
-            runtime: {},
-            loadTimes: function() {},
-            csi: function() {},
-            app: {
-                isInstalled: false,
-                InstallState: {
-                    DISABLED: 'disabled',
-                    INSTALLED: 'installed',
-                    NOT_INSTALLED: 'not_installed'
-                },
-                RunningState: {
-                    CANNOT_RUN: 'cannot_run',
-                    READY_TO_RUN: 'ready_to_run',
-                    RUNNING: 'running'
-                }
-            }
-        };
-    }
-
-    // 3. 覆盖 Permissions API (防止通过通知权限反查自动化状态)
+    // 5. 覆盖 Permissions API (保持原有逻辑)
     const originalQuery = window.navigator.permissions.query;
     window.navigator.permissions.query = (parameters) => (
         parameters.name === 'notifications' ?
         Promise.resolve({ state: Notification.permission }) :
         originalQuery(parameters)
     );
-    
-    // 4. 这里的 Plugins 和 Languages 伪造已被移除。
-    // Playwright 默认的指纹通常比拙劣的伪造（如 [1,2,3]）更安全。
-    // 如果需要高级指纹，建议后续引入 playwright-stealth 库。
+
+    // 6. 绕过 "自动化软件控制" 的 CSS 检测 (Hairline feature)
+    // Headless 渲染时 hairline 宽度处理有时与 GUI 不同，此处做强制归一化
+    defineProperty(HTMLElement.prototype, 'offsetHeight', {
+        get() {
+            const height = this.getBoundingClientRect().height;
+            return height; // 移除潜在的亚像素差异
+        }
+    });
 })();
 """
 
@@ -208,7 +236,7 @@ class GoogleBot:
                         permissions=["clipboard-read", "clipboard-write"] # 允许剪贴板
                     )
                     
-                    # --- C. 注入隐身 JS ---
+                    # --- C. 注入隐身 JS (增强版) ---
                     context.add_init_script(STEALTH_JS)
                     
                     page = context.new_page()
@@ -275,20 +303,25 @@ class GoogleBot:
                                 code = self.sms_api.get_sms_code(order_id)
                                 if code:
                                     try:
-                                        human_delay(1500, 3000) # 模拟看短信时间
+                                        # 优化：移除原本的 human_delay(1500, 3000) "看短信时间"，不浪费时间
                                         
-                                        # 模拟人类复制粘贴 (比直接 type 更符合逻辑，因为一般是复制进来的)
-                                        page.evaluate(f"navigator.clipboard.writeText('{code}')")
+                                        # 确定验证码输入框的选择器
+                                        code_selector = 'input[name="code"]'
+                                        if not page.is_visible(code_selector):
+                                            code_selector = 'input[id*="Pin"]'
                                         
-                                        # 尝试聚焦验证码框
-                                        try: page.focus('input[name="code"]')
-                                        except: page.focus('input[id*="Pin"]')
+                                        print(f"⌨️ 收到验证码 {code}，正在执行拟人化键入...")
                                         
-                                        print(f"📋 模拟人工粘贴验证码: {code}")
-                                        page.keyboard.press("Control+V")
-                                        human_delay(800, 1500)
-                                    except:
-                                        # 备选方案：直接填入
+                                        # 使用 human_type 替代原本的 clipboard/Control+V 逻辑
+                                        # 这将模拟逐字输入，且通过移除上方的大延迟提高了效率
+                                        human_type(page, code_selector, code)
+                                        
+                                        # 输入完成后稍微停顿一下，模拟按下回车前的确认
+                                        human_delay(200, 500) 
+                                        
+                                    except Exception as e:
+                                        print(f"⚠️ 键入模拟遇到问题: {e}")
+                                        # 降级方案：如果逐字输入失败，回退到 fill
                                         try: page.fill('input[name="code"]', code)
                                         except: page.fill('input[id*="Pin"]', code)
 
@@ -348,7 +381,7 @@ if __name__ == "__main__":
         bot = GoogleBot()
         print(f"✨ 准备处理 {len(account_list)} 个账号...")
         print(f"🗺️ 目标国家ID: {CONFIG['COUNTRY_ID']}")
-        print("🕵️‍♀️ AAB 隐身模式: 已激活")
+        print("🕵️‍♀️ AAB 增强隐身模式: 已激活")
         
         for acc in account_list:
             bot.process_account(acc)
