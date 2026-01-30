@@ -81,7 +81,7 @@ def human_type(page, selector, text):
         for char in text:
             page.type(selector, char, delay=random.uniform(50, 150))
     except Exception as e:
-        print(f"⚠️ 输入模拟遇到问题: {e}")
+        print(f"输入模拟遇到问题: {e}")
         # 降级方案：如果逐字输入失败，回退到 fill 但保留前后延迟
         page.fill(selector, text)
 
@@ -89,7 +89,7 @@ def load_accounts_from_file(file_path):
     """加载账号文件"""
     accounts = []
     if not os.path.exists(file_path):
-        print(f"❌ 找不到文件: {file_path}")
+        print(f"找不到文件: {file_path}")
         return []
     
     with open(file_path, "r", encoding="utf-8") as f:
@@ -104,7 +104,7 @@ def load_accounts_from_file(file_path):
                     "recovery": parts[2].strip() if len(parts) > 2 else ""
                 }
                 accounts.append(acc)
-    print(f"✅ 成功加载了 {len(accounts)} 个账号")
+    print(f"成功加载了 {len(accounts)} 个账号")
     return accounts
 
 def log_failed_account(email):
@@ -112,9 +112,9 @@ def log_failed_account(email):
     try:
         with open(CONFIG["FAILED_FILE"], "a", encoding="utf-8") as f:
             f.write(f"{email}\n")
-        print(f"📝 已将 {email} 加入失败名单")
+        print(f"已将 {email} 加入失败名单")
     except Exception as e:
-        print(f"❌ 写入失败文件时出错: {e}")
+        print(f"写入失败文件时出错: {e}")
 
 # =======================================================================================
 # === IV. 接码平台客户端 (SMS Client) ===
@@ -130,12 +130,12 @@ class HeroSMSClient:
             response = requests.get(self.base_url, params=params, timeout=15)
             return response.text
         except Exception as e:
-            print(f"💥 网络请求出错: {e}")
+            print(f"网络请求出错: {e}")
             return None
 
     def get_number(self):
         params = { "action": "getNumber", "service": CONFIG["SERVICE_CODE"], "country": CONFIG["COUNTRY_ID"] }
-        print(f"📡 正在请求 Google 号码 (国家ID: {CONFIG['COUNTRY_ID']})...")
+        print(f"正在请求 Google 号码 (国家ID: {CONFIG['COUNTRY_ID']})...")
         result = self._request(params)
         if result and "ACCESS_NUMBER" in result:
             parts = result.split(":")
@@ -148,13 +148,13 @@ class HeroSMSClient:
 
     def get_sms_code(self, activation_id, timeout=120):
         params = {"action": "getStatus", "id": activation_id}
-        print(f"⏳ 正在监听短信 (ID: {activation_id})...")
+        print(f"正在监听短信 (ID: {activation_id})...")
         start = time.time()
         while time.time() - start < timeout:
             result = self._request(params)
             if result and result.startswith("STATUS_OK"):
                 code = result.split(":")[1]
-                print(f"📨 收到验证码: {code}")
+                print(f"收到验证码: {code}")
                 return code
             elif result == "STATUS_CANCEL":
                 print("❌ 订单被取消。")
@@ -164,11 +164,11 @@ class HeroSMSClient:
 
     def set_status_complete(self, activation_id):
         self._request({"action": "setStatus", "id": activation_id, "status": "6"})
-        print("✅ 订单标记完成。")
+        print("订单标记完成。")
 
     def set_status_cancel(self, activation_id):
         self._request({"action": "setStatus", "id": activation_id, "status": "8"})
-        print("🔄 订单已取消。")
+        print("订单已取消。")
 
 # =======================================================================================
 # === V. 自动化机器人 (Google Bot with Stealth) ===
@@ -182,7 +182,7 @@ class GoogleBot:
         MAX_ACCOUNT_RETRIES = 3 
         
         for account_attempt in range(MAX_ACCOUNT_RETRIES):
-            print(f"\n🚀 === [第 {account_attempt + 1}/{MAX_ACCOUNT_RETRIES} 次] 隐身模式处理: {email} ===")
+            print(f"\n=== [第 {account_attempt + 1}/{MAX_ACCOUNT_RETRIES} 次] 隐身模式处理: {email} ===")
             
             try:
                 with sync_playwright() as p:
@@ -237,15 +237,15 @@ class GoogleBot:
                         try:
                             # 增加检测时间，防止网络慢导致的误判
                             page.wait_for_selector('input[type="tel"]', timeout=10000)
-                            print("⚠️ 触发手机验证！启动接码流程...")
+                            print("触发手机验证！启动接码流程...")
                             
                             phone_success = False
                             for phone_attempt in range(3):
-                                if phone_attempt > 0: print(f"🔄 换号重试 (第 {phone_attempt+1} 次)...")
+                                if phone_attempt > 0: print(f"换号重试 (第 {phone_attempt+1} 次)...")
                                 
                                 # 确保在输入号码的界面
                                 if page.is_visible('input[name="code"]') or page.is_visible('input[id*="Pin"]'):
-                                    print("🛑 发现处于验证码输入页，尝试回退...")
+                                    print("发现处于验证码输入页，尝试回退...")
                                     page.go_back() 
                                     human_delay(2000, 3000)
                                     if not page.is_visible('input[type="tel"]'):
@@ -260,7 +260,7 @@ class GoogleBot:
                                 # 格式化号码
                                 clean_digits = re.sub(r'\D', '', str(raw_number))
                                 final_phone = f"+{clean_digits}"
-                                print(f"📱 尝试填入: {final_phone}")
+                                print(f"尝试填入: {final_phone}")
                                 
                                 # 拟人化填入号码
                                 page.click('input[type="tel"]') # 先点击聚焦
@@ -294,22 +294,22 @@ class GoogleBot:
 
                                     page.keyboard.press("Enter")
                                     
-                                    print("🕵️‍♀️ 提交后观察中...")
+                                    print("提交后观察中...")
                                     page.wait_for_timeout(5000)
                                     
                                     # 检查是否被弹回
                                     if page.is_visible('input[type="tel"]') and not page.is_visible('input[name="code"]'):
-                                        print("🔄 验证无效 (可能号码被滥用)，换号...")
+                                        print("验证无效 (可能号码被滥用)，换号...")
                                         self.sms_api.set_status_cancel(order_id)
                                         continue 
                                     else:
-                                        print(f"🎉 账号 {email} 验证通过！")
+                                        print(f"账号 {email} 验证通过！")
                                         self.sms_api.set_status_complete(order_id)
                                         page.wait_for_timeout(3000)
                                         phone_success = True
                                         break 
                                 else:
-                                    print("❌ 超时未收到码，换号...")
+                                    print("超时未收到码，换号...")
                                     self.sms_api.set_status_cancel(order_id)
                                     continue
                             
@@ -343,7 +343,7 @@ if __name__ == "__main__":
     account_list = load_accounts_from_file(CONFIG["ACCOUNT_FILE"])
     
     if not account_list:
-        print("账号文件为空或未找到 accounts.txt 喵。")
+        print("账号文件为空或未找到 accounts.txt 。")
     else:
         bot = GoogleBot()
         print(f"准备处理 {len(account_list)} 个账号...")
@@ -354,7 +354,7 @@ if __name__ == "__main__":
             bot.process_account(acc)
             # 账号间的大间隔，防止关联
             rest_time = random.randint(5, 10)
-            print(f"💤 任务完成，休息 {rest_time} 秒...")
+            print(f"任务完成，等待 {rest_time} 秒...")
             time.sleep(rest_time)
             
         print("全部任务完成")
