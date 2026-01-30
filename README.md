@@ -1,105 +1,87 @@
-# AutoGoogleVerify - 隐身版 Google 账号验证系统
+# AutoGoogleVerify - 自动化 Google 账号验证系统
 
-## 📖 项目简介
-本项目是一个基于 **Playwright** 和 **Anaconda** 的高级自动化脚本，专为批量处理 Google 账号登录及手机号验证而设计。
+## 项目概述 (Project Overview)
 
-与普通脚本不同，本项目内置了 **AAB 核心隐身补丁 (Stealth JS Injection)** 和 **拟人化行为系统**，能够有效规避 Google 的自动化检测，像真实人类一样操作喵！核心功能是自动监测登录时的手机号验证请求，并调用 **HeroSMS API** 自动接码过验证。
+**AutoGoogleVerify** 是一款基于 **Playwright** 自动化框架与 **HeroSMS** 接码服务构建的高级账号验证解决方案。本项目旨在解决 Google 账号批量登录过程中频繁触发的手机号验证（PVA）问题。
 
-> **✨ 核心黑科技**
-> * **🕵️‍♀️ AAB 级隐身内核**：通过注入特制 JS 补丁，移除 `navigator.webdriver` 标记，伪造 Chrome 运行时对象和权限 API，通过高等级指纹检测。
-> * **🎭 深度拟人化**：拒绝机械式输入！模拟人类的随机思考停顿 (`human_delay`) 和逐字输入 (`human_type`)，甚至模拟“复制粘贴”验证码的操作。
-> * **🛡️ 智能风控对抗**：自动识别验证码输入页、自动处理号码滥用（号码无效自动换号），支持失败重试机制。
-> * **📝 自动记录**：处理失败的账号会自动记录到 `failed_accounts.txt`，方便后续复盘。
+系统核心集成了 **AAB (Anti-Automation Bypass) 隐身技术** 与 **拟人化行为引擎**，能够有效规避主流的风控检测。最新版本引入了基于 `Tkinter` 的图形用户界面（GUI），实现了任务的可视化管理与实时监控，大幅提升了操作效率与交互体验。
 
 ---
 
-## 🛠️ 环境搭建 (Installation)
+## 仓库目录结构与版本说明 (Directory Structure)
 
-建议使用 Anaconda 来管理环境，保持干净整洁喵。
+本仓库采用分层架构管理代码，以适应开发、生产及历史回溯等不同场景的需求。
 
-### 1. 创建环境
-请在终端执行以下命令创建 Python 3.10 环境：
+### 1. `Frist GUI.py` (Flagship)
+**【当前推荐版本】**
+这是基于最新稳定逻辑构建的**图形化用户界面（GUI）版本**。它不仅继承了底层脚本的强劲功能，更在交互体验与架构设计上进行了全面升级：
+
+* **可视化控制台 (Visual Dashboard)**：基于 `Tkinter` 框架构建，摒弃了枯燥的命令行交互，提供直观的“启动/停止”控制与参数配置入口。
+* **多线程架构 (Multithreading)**：采用 `threading` + `queue` 的生产者-消费者模型，确保后台自动化任务与前台界面渲染分离，杜绝界面卡顿，保证程序运行的稳定性。
+* **实时日志监控 (Real-time Logging)**：内置滚动日志面板，支持不同级别日志（INFO/ERROR/SUCCESS）的颜色分级显示，实时反馈登录状态、接码进度及异常信息。
+* **进度可视化 (Progress Tracking)**：顶部集成任务进度条，实时展示当前批次账号的处理进度（如：5/100），便于大规模任务管理。
+
+### 2. `FIN_/` (Stable Release / 生产稳定版)
+* **主要文件**：`First.py`
+* **定位**：**命令行接口 (CLI) 的最终稳定版本**。
+* **说明**：该目录存放经过充分测试、逻辑最为稳健的代码。它剥离了图形界面组件，仅保留核心自动化逻辑。适用于需要部署在服务器（Serverless/Docker）或通过脚本批量调用的生产环境。它是 `Frist GUI.py` 的逻辑基石。
+
+### 3. `OLD_/` (Legacy / 历史归档)
+* **主要文件**：旧版 `First.py` 等
+* **定位**：**上一代稳定版本备份**。
+* **说明**：当新版本（FIN_）在特定网络环境或系统配置下出现兼容性问题时，该目录下的代码可作为快速回滚方案（Rollback Plan），确保业务连续性。
+
+### 4. `ARCH_/` (Research & Archive / 研发实验室)
+* **主要文件**：`AI refract.py` (Alpha), `Beta.py`, `Stable.py`
+* **定位**：**实验性功能与高级对抗技术验证区**。
+* **说明**：此目录包含处于开发阶段或包含激进反指纹技术的代码，供研究学习使用：
+    * **`AI refract.py`**：集成了 **Ultra Stealth JS Injection V3.0**，测试了包括 Canvas 动态噪音注入、WebGL 厂商指纹深度伪造、AudioContext 阻断等高阶反爬虫对抗技术。
+    * **`Beta.py`**：功能特性测试分支。
+    * **注意**：此目录下的代码稳定性尚未完全验证，不建议直接用于生产环境。
+
+---
+
+## 核心技术特性 (Core Features)
+
+### 隐身内核 (Stealth Engine)
+* **环境伪装**：通过 CDP 协议在浏览器初始化阶段注入特制 JavaScript，深度抹除 `navigator.webdriver` 标记，重写 `Chrome Runtime` 对象及 `Permissions API`，模拟真实用户浏览器指纹。
+* **指纹一致性**：强制统一硬件并发数（Hardware Concurrency）与内存信息，防止 Headless 模式下的特征泄露。
+
+### 拟人化行为模拟 (Human Simulation)
+* **非线性输入**：实现 `human_type` 算法，模拟人类键入时的随机速率与停顿，规避固定频率检测。
+* **认知延迟**：在关键交互节点（如输入密码后、点击确认前）引入符合正态分布的随机思考时间 (`human_delay`)。
+* **剪贴板交互**：在验证码填入环节，模拟“复制-聚焦-粘贴”的操作链路，显著提升验证通过率。
+
+### 智能风控处理 (Smart Risk Control)
+* **场景自适应**：自动检测登录过程中的异常跳转，精准识别手机号验证页面。
+* **动态接码**：无缝对接 HeroSMS API，自动提取可用号码；若遇到“此号码无法用于验证”的风控提示，系统将自动取消订单并重试新号码，无需人工干预。
+
+---
+
+## 快速部署 (Deployment)
+
+### 环境依赖
+推荐使用 Python 3.10+ 环境。
 
 ```bash
-conda create -n llm_verify python=3.10
-conda activate llm_verify
-```
-
-### 2. 安装依赖
-安装必要的 Python 库和 Playwright 浏览器内核：
-
-```bash
-# 安装 Python 依赖
+# 安装核心依赖库
 pip install requests playwright
 
-# 安装 Playwright 浏览器内核
-playwright install
+# 安装 Playwright 浏览器驱动
+playwright install chromium
 ```
 
----
-
-## ⚙️ 配置说明 (Configuration)
-
-在使用前，请务必修改 `AutoGoogleVerify_API.py` 文件顶部的配置区域喵。
-
-### 1. 核心配置 (`CONFIG`)
-
-打开代码文件，找到 `CONFIG` 字典进行修改：
-
-```python
-CONFIG = {
-    # [必须] 您的 HeroSMS API Key，请确保账户有余额喵
-    "API_KEY": "YOUR_API_KEY_HERE",
-    
-    # [关键] 目标国家 ID
-    # 默认为 151 (智利)，可根据需求修改 (如: 6=印尼, 187=美国)
-    "COUNTRY_ID": "151", 
-    
-    # 服务代码 (Google 项目代码，通常无需修改)
-    "SERVICE_CODE": "go",   
-    
-    # 文件路径配置
-    "ACCOUNT_FILE": "accounts.txt",      # 待处理账号文件
-    "FAILED_FILE": "failed_accounts.txt" # [新增] 失败账号自动保存文件
-}
-```
-
-### 2. 账号文件准备
-在脚本同级目录下创建 `accounts.txt`，每行一个账号。支持多种分隔符（冒号、竖线、逗号）：
-
-```text
-# 格式: 邮箱:密码:辅助邮箱(可选)
-catgirl@gmail.com:meow123
-neko@gmail.com:fish456:recovery@email.com
-```
-
----
-
-## 🚀 运行脚本 (Usage)
-
-一切准备就绪后，运行以下命令启动机器人：
-
+### 启动方式
+**GUI 模式（推荐）：**
 ```bash
-python AutoGoogleVerify_API.py
+python "Frist GUI.py"
 ```
 
-### 🤖 脚本工作流程
-1.  **隐身启动**：启动 Chromium 浏览器，自动去除自动化特征条，强制设置为中文环境 (`zh-CN`)。
-2.  **拟人登录**：
-    * 模拟人工输入账号密码，包含随机的击键间隔。
-    * 如果遇到密码错误或无法登录，会自动重试（默认每个账号最多重试 3 次）。
-3.  **智能验证 (关键)**：
-    * **自动侦测**：如果页面弹出 `input[type="tel"]` 手机号输入框，脚本立即接管。
-    * **自动取号**：向 API 请求指定国家的号码，自动清洗格式并添加国际区号 `+`。
-    * **自动填码**：获取到验证码后，会模拟将验证码“粘贴”到输入框（触发 `clipboard` 事件），通过率更高！
-    * **异常处理**：如果号码无法使用或收不到码，会自动取消订单并换新号重试。
-4.  **结果处理**：
-    * **成功**：标记 API 订单完成，并在控制台输出 `🎉 账号验证通过！`。
-    * **失败**：如果多次尝试均失败，将账号写入 `failed_accounts.txt`。
+**CLI 模式：**
+```bash
+python FIN_/First.py
+```
 
 ---
 
-## ⚠️ 注意事项 (Tips)
-* **代理设置**：代码中默认注释了代理设置。如果您的网络环境需要代理，请在 `AutoGoogleVerify_API.py` 的 `p.chromium.launch` 部分取消 `proxy` 参数的注释并填入 IP。
-* **观察模式**：默认 `headless=False`（有头模式），您可以看到浏览器的操作过程。这不仅方便调试，在某种程度上也比无头模式更不容易被检测喵。
-* **API 成本**：请留意接码平台的余额，余额不足会导致 `NO_BALANCE` 错误。
+> **免责声明**：本项目仅供技术研究与教育用途。请遵守相关法律法规及目标平台的服务条款。
