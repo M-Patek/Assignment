@@ -1,4 +1,4 @@
-Import re
+import re
 import time
 import os
 import random
@@ -6,7 +6,7 @@ import requests
 from playwright.sync_api import sync_playwright, TimeoutError
 
 # =======================================================================================
-# === I. AAB 核心隐身补丁 (Stealth JS Injection)  ===
+# === I. 核心隐身补丁 (Stealth JS Injection)  ===
 # =======================================================================================
 STEALTH_JS = """
 (() => {
@@ -157,7 +157,7 @@ class HeroSMSClient:
                 print(f"收到验证码: {code}")
                 return code
             elif result == "STATUS_CANCEL":
-                print("❌ 订单被取消。")
+                print("订单被取消。")
                 return None
             time.sleep(3)
         return None
@@ -186,7 +186,7 @@ class GoogleBot:
             
             try:
                 with sync_playwright() as p:
-                    # --- A. 浏览器启动配置 (AAB 级隐身) ---
+                    # --- A. 浏览器启动配置 ---
                     # 优化：移除了 --no-sandbox，这通常是服务器用的，本地跑容易被检测
                     browser = p.chromium.launch(
                         headless=False,  # 建议开启界面以观察
@@ -284,7 +284,7 @@ class GoogleBot:
                                         try: page.focus('input[name="code"]')
                                         except: page.focus('input[id*="Pin"]')
                                         
-                                        print(f"📋 模拟人工粘贴验证码: {code}")
+                                        print(f"模拟人工粘贴验证码: {code}")
                                         page.keyboard.press("Control+V")
                                         human_delay(800, 1500)
                                     except:
