@@ -317,23 +317,23 @@ class GoogleBot:
                                 raise Exception("多次换号验证均失败")
                                 
                         except TimeoutError:
-                            print("✅ 未检测到手机验证框，登录似乎直接成功了。")
+                            print("未检测到手机验证框，登录似乎直接成功了。")
                         
-                        print(f"✨ 账号 {email} 流程结束！")
+                        print(f"账号 {email} 流程结束！")
                         return 
                         
                     except Exception as inner_e:
-                        print(f"💥 页面操作出错: {inner_e}")
+                        print(f"页面操作出错: {inner_e}")
                         raise inner_e 
                     finally:
                         human_delay(1000, 2000)
                         browser.close()
                         
             except Exception as e:
-                print(f"⚠️ 本次尝试失败，休息后重试... ({e})")
+                print(f"本次尝试失败，休息后重试... ({e})")
                 time.sleep(5)
         
-        print(f"❌ 账号 {email} 彻底处理失败。")
+        print(f"账号 {email} 彻底处理失败。")
         log_failed_account(email)
 
 # =======================================================================================
@@ -343,12 +343,12 @@ if __name__ == "__main__":
     account_list = load_accounts_from_file(CONFIG["ACCOUNT_FILE"])
     
     if not account_list:
-        print("🛑 账号文件为空或未找到 accounts.txt 喵。")
+        print("账号文件为空或未找到 accounts.txt 喵。")
     else:
         bot = GoogleBot()
-        print(f"✨ 准备处理 {len(account_list)} 个账号...")
-        print(f"🗺️ 目标国家ID: {CONFIG['COUNTRY_ID']}")
-        print("🕵️‍♀️ AAB 隐身模式: 已激活")
+        print(f"准备处理 {len(account_list)} 个账号...")
+        print(f"目标国家ID: {CONFIG['COUNTRY_ID']}")
+        print("隐身模式: 已激活")
         
         for acc in account_list:
             bot.process_account(acc)
@@ -357,4 +357,4 @@ if __name__ == "__main__":
             print(f"💤 任务完成，休息 {rest_time} 秒...")
             time.sleep(rest_time)
             
-        print("🏁 全部任务完成")
+        print("全部任务完成")
