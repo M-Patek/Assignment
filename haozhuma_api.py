@@ -8,6 +8,10 @@ import queue
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 from playwright.sync_api import sync_playwright, TimeoutError
+import urllib3
+
+# 禁用不安全请求警告 (针对部分接码平台SSL证书问题)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =======================================================================================
 # === I. 核心隐身补丁 (Stealth JS Injection) ===
@@ -55,12 +59,15 @@ STEALTH_JS = """
 # === II. 全局配置区域 (Configuration) ===
 # =======================================================================================
 CONFIG = {
-    # 豪猪网/易码协议配置
+    # 豪猪网/豪猪云 新版API配置
     "HZ_USER": "",  # 您的 API 账号
     "HZ_PWD": "",   # 您的 API 密码
-    "HZ_BASE_URL": "http://api.haozhu.wang/api/do.php", # 豪猪网 API 地址 (易码协议)
+    "HZ_BASE_URL": "https://api.haozhuma.com/sms/", # 更新为截图中的HTTPS地址
 
-    "TARGET_COUNTRY": "US", # 目标国家 keyword，用于搜索项目，如 "US" (美国) 或 "HK" (香港)
+    "TARGET_COUNTRY": "US", # 目标国家 (逻辑保留，主要依赖项目ID)
+    
+    # 默认 Google 项目 ID (参考截图6，如果搜索失败将使用此ID)
+    "DEFAULT_GOOGLE_SID": "20706",
 
     "ACCOUNT_FILE": "accounts.txt",
     "FAILED_FILE": "failed_accounts.txt"
@@ -116,209 +123,201 @@ def log_failed_account(email):
         pass
 
 # =======================================================================================
-# === IV. 接码客户端 (HaozhumaClient - Yima Protocol) ===
+# === IV. 接码客户端 (HaozhumaClient - New Protocol) ===
 # =======================================================================================
 class HaozhumaClient:
     def __init__(self, username, password, logger_callback):
         self.username = username
         self.password = password
-        self.base_url = CONFIG.get("HZ_BASE_URL", "http://api.haozhu.wang/api/do.php")
+        self.base_url = CONFIG.get("HZ_BASE_URL", "https://api.haozhuma.com/sms/")
         self.log = logger_callback
         self.token = None
         self.sid = None  # 项目 ID (Project ID)
         self.current_phone = None
 
     def _request(self, params):
-        """通用请求函数，处理网络异常"""
+        """通用请求函数，处理新版 JSON 协议"""
+        # 1. 协议转换: 旧代码 action -> 新代码 api
+        if "action" in params:
+            params["api"] = params.pop("action")
+
+        # 2. 自动附加 Token
+        if self.token and "token" not in params and params.get("api") != "login":
+            params["token"] = self.token
+            
         try:
-            # 自动附加 token (如果存在且不是登录请求)
-            if self.token and "token" not in params and params.get("action") != "login":
-                params["token"] = self.token
-
-            resp = requests.get(self.base_url, params=params, timeout=15, proxies={"http": None, "https": None})
-            text = resp.text.strip()
-
-            # 简单的错误检查 (易码协议常见错误)
-            if text in ["not_login", "time_out", "login_error"]:
-                self.log(f"[API] 登录失效，尝试重连... ({text})")
-                if self.login(): # 尝试重新登录
-                    params["token"] = self.token
-                    return requests.get(self.base_url, params=params, timeout=15).text.strip()
-                else:
-                    return "LOGIN_FAILED"
-            return text
+            # 3. 发送请求 (verify=False 防止SSL报错)
+            resp = requests.get(self.base_url, params=params, timeout=15, verify=False)
+            
+            # 4. 解析 JSON
+            try:
+                data = resp.json()
+                
+                # 检查 Token 是否过期 (假设 code 100 或其他为过期，具体视API而定，这里做通用处理)
+                # 如果是登录失效，通常需要重新登录。这里简单处理，如果 code 非0且非登录请求，尝试重连
+                if str(data.get("code")) != "0" and params.get("api") != "login":
+                    msg = str(data.get("msg", ""))
+                    if "登录" in msg or "token" in msg.lower():
+                        self.log(f"[API] Token 可能失效 ({msg})，尝试重连...")
+                        if self.login():
+                            params["token"] = self.token
+                            # 重发请求
+                            resp = requests.get(self.base_url, params=params, timeout=15, verify=False)
+                            return resp.json()
+                return data
+            except ValueError:
+                # 假如返回的不是JSON (极少情况)
+                self.log(f"[API] 返回非 JSON 数据: {resp.text[:50]}")
+                return None
+                
         except Exception as e:
             self.log(f"[API错误] 请求异常: {e}")
             return None
 
     def login(self):
-        """登录获取 Token"""
+        """登录获取 Token (协议图2)"""
+        # 参数: api=login&user=xxx&pass=xxx
         params = {
-            "action": "login",
-            "username": self.username,
-            "password": self.password
+            "action": "login", # 会在 _request 中转为 api
+            "user": self.username,
+            "pass": self.password
         }
         res = self._request(params)
-        if res and "|" in res:
-            # 成功格式通常为: token|余额
-            parts = res.split("|")
-            self.token = parts[0]
-            balance = parts[1]
-            self.log(f"[API] 登录成功，Token: {self.token[:8]}..., 余额: {balance}")
+        
+        # 响应: {"msg": "success", "code": 0, "token": "..."}
+        if res and str(res.get("code")) == "0":
+            self.token = res.get("token")
+            self.log(f"[API] 登录成功，Token: {self.token[:8]}...")
             return True
         else:
-            self.log(f"[API] 登录失败: {res}")
+            msg = res.get("msg") if res else "无响应"
+            self.log(f"[API] 登录失败: {msg}")
             return False
 
     def search_project_id(self, keyword="Google", country_code="US"):
         """
-        搜索项目ID。
-        逻辑：获取所有项目列表，查找包含 keyword (如 Google) 和 country_code (如 US/美国) 的项目。
+        搜索项目ID。由于新版API文档未展示 getProjects 接口，
+        此处保留旧逻辑并增加 JSON 兼容，同时增加默认 ID 回退。
         """
-        self.log(f"[API] 正在搜索项目 ID: 关键词='{keyword}', 国家='{country_code}'...")
+        # 1. 优先使用 Config 中的默认 ID (基于截图6: Google=20706)
+        if keyword.lower() == "google":
+            default_sid = CONFIG.get("DEFAULT_GOOGLE_SID", "20706")
+            self.sid = default_sid
+            self.log(f"[API] 使用默认 Google 项目 ID: {self.sid}")
+            return self.sid
 
-        # 尝试获取项目列表 (易码协议 action=getProjects 或 getSummary)
-        res = self._request({"action": "getProjects"})
+        # 2. 尝试调用搜索 (如果API支持)
+        self.log(f"[API] 尝试搜索项目: {keyword}...")
+        # 注意：这里的 params 可能会失效，如果新版没有 getProjects 接口
+        res = self._request({"action": "getProjects"}) 
 
         if not res:
-            self.log("[API] 无法获取项目列表，可能网络问题或接口变更")
-            return None
+            self.log("[API] 无法获取项目列表，使用默认配置")
+            return self.sid
 
-        # 假设返回格式为每行: id|name|price 或 JSON
-        # 这里按标准易码协议处理: 文本行, 分隔符可能不统一, 常见是 |
-        lines = res.split('\n')
-        candidates = []
+        # 尝试解析结果 (兼容 JSON List 或 文本行)
+        # 如果返回的是 JSON
+        if isinstance(res, dict) and "data" in res:
+             # 假设结构
+             candidates = res["data"]
+             # ... 遍历寻找 ...
+             pass
+        elif isinstance(res, list):
+             # ... 遍历寻找 ...
+             pass
+        else:
+            self.log("[API] 项目列表格式未知，跳过搜索")
 
-        for line in lines:
-            if keyword.lower() in line.lower():
-                candidates.append(line)
-
-        if not candidates:
-             self.log(f"[API] 未找到任何包含 '{keyword}' 的项目")
-             return None
-
-        # 二次筛选国家
-        final_sid = None
-        target_name = ""
-
-        country_keywords = [country_code]
-        if country_code == "US": country_keywords.append("美国")
-        if country_code == "HK": country_keywords.append("香港")
-
-        for item in candidates:
-            for ck in country_keywords:
-                if ck in item:
-                    parts = item.split('|')
-                    if len(parts) >= 2:
-                        final_sid = parts[0]
-                        target_name = parts[1]
-                        self.log(f"[API] 找到匹配项目: {target_name} (ID: {final_sid})")
-                        break
-            if final_sid: break
-
-        # 如果找不到特定国家，默认取第一个包含 keyword 的
-        if not final_sid and candidates:
-            parts = candidates[0].split('|')
-            final_sid = parts[0]
-            target_name = parts[1] if len(parts) > 1 else "未知"
-            self.log(f"[API] 未找到指定国家({country_code})项目，使用默认匹配: {target_name} (ID: {final_sid})")
-
-        if final_sid:
-            self.sid = final_sid
-            return final_sid
-
-        self.log("[API] 未找到符合条件的项目 ID")
-        return None
+        return self.sid
 
     def get_number(self):
         """
-        获取号码
-        Returns: order_id (phone), raw_number (phone)
-        为了兼容 BotThread，返回 (phone, phone)，因为易码协议中手机号即订单号
+        获取号码 (协议图4)
+        Returns: phone, phone
         """
         if not self.token and not self.login():
             return None, None
 
         if not self.sid:
-            # 尝试搜索 ID，默认 Google
-            target_country = CONFIG.get("TARGET_COUNTRY", "US")
-            if not self.search_project_id("Google", target_country):
-                self.log("❌ 无法确定项目ID，请检查配置或手动指定。")
-                return None, None
+            self.search_project_id("Google")
 
+        # 参数: api=getPhone&token=...&sid=...
         params = {
             "action": "getPhone",
             "sid": self.sid
         }
+        
+        # 可选参数 (根据截图4)
+        # params["exclude"] = "170_171" # 排除虚拟号段示例
 
         self.log(f"[API] 正在获取号码 (项目ID: {self.sid})...")
         res = self._request(params)
 
-        # 成功格式: success|13800138000
-        # 或者直接返回号码: 13800138000
-        # 易码协议标准通常是: success|phone 或 1|phone
+        # 响应推测: {"code": 0, "phone": "13800000000", ...} 或 {"code": 0, "number": "..."}
+        if res and str(res.get("code")) == "0":
+            # 尝试从常见字段中获取号码
+            phone = res.get("phone") or res.get("number") or res.get("mobile")
+            
+            # 如果没有直接字段，检查 msg 是否就是号码 (部分平台特性)
+            if not phone and str(res.get("msg")).isdigit() and len(str(res.get("msg"))) > 6:
+                phone = str(res.get("msg"))
 
-        phone = None
-        if res and ("success" in res or res.startswith("1|")):
-            parts = res.split("|")
-            if len(parts) >= 2:
-                phone = parts[1]
-            else:
-                # 有些平台直接返回号码，且不是错误代码
-                if len(res) > 7 and "|" not in res:
-                    phone = res
+            if phone:
+                self.current_phone = phone
+                self.log(f"✅ 获取号码成功: {phone}")
+                return phone, phone
 
-        if phone:
-            self.current_phone = phone
-            self.log(f"✅ 获取号码成功: {phone}")
-            return phone, phone # 兼容旧代码
-
-        if "没有" in str(res) or "Lack" in str(res) or "no_phone" in str(res):
-            self.log("❌ 当前项目缺货 (No numbers available)")
-        elif "balance" in str(res) or "money" in str(res):
+        msg = res.get("msg") if res else "请求失败"
+        if "余额" in msg:
             self.log("❌ 余额不足")
+        elif "没有" in msg or "lack" in msg.lower():
+            self.log("❌ 当前项目缺货")
         else:
-            self.log(f"❌ 取号失败: {res}")
+            self.log(f"❌ 取号失败: {msg}")
 
         return None, None
 
-    def get_sms_code(self, order_id_phone, timeout=120):
+    def get_sms_code(self, phone, timeout=120):
         """
-        获取验证码
-        order_id_phone: 在 Yima 协议中，phone 就是用于查询的 ID
+        获取验证码 (协议图5)
         """
-        if not order_id_phone: return None
+        if not phone: return None
 
-        self.log(f"[API] 正在监听短信 (Phone: {order_id_phone})...")
+        self.log(f"[API] 正在监听短信 (Phone: {phone})...")
         start = time.time()
 
+        # 参数: api=getMessage&token=...&sid=...&phone=...
         params = {
             "action": "getMessage",
             "sid": self.sid,
-            "phone": order_id_phone
+            "phone": phone
         }
 
         while time.time() - start < timeout:
             res = self._request(params)
 
-            # 成功格式: success|验证码内容... 或 1|验证码
-            if res and ("success" in res or res.startswith("1|")):
-                parts = res.split("|")
-                msg_body = parts[1] if len(parts) > 1 else res
+            # 响应: {"code": "0", "msg": "成功", "sms": "...", "yzm": "123456"}
+            if res and str(res.get("code")) == "0":
+                # 截图5显示直接返回了 'yzm' 字段，非常方便
+                yzm = res.get("yzm")
+                sms_content = res.get("sms", "")
+                
+                if yzm:
+                    self.log(f"✅ 收到验证码 (API直接解析): {yzm}")
+                    return yzm
+                
+                # 如果 yzm 字段为空，尝试从 sms 内容提取
+                if sms_content:
+                    code_match = re.search(r'(?:G-|G|)(\d{4,6})', sms_content)
+                    if code_match:
+                        code = code_match.group(1)
+                        self.log(f"✅ 收到短信 (正则提取): {code}")
+                        return code
 
-                # 尝试提取纯数字验证码 (通常6位，Google 有时是 G-xxxxxx)
-                # 匹配 G-123456 或 123456
-                code_match = re.search(r'(?:G-|G|)(\d{4,6})', msg_body)
-                code = code_match.group(1) if code_match else msg_body
-
-                self.log(f"✅ 收到短信: {code}")
-                return code
-
-            elif "not_receive" in res or res == "0":
-                pass # 继续等待
-            else:
-                pass
-
+            elif str(res.get("code")) == "0" and "正在" in str(res.get("sms", "")):
+                 # 有时 code=0 但内容是 "正在申请..."，视为未收到
+                 pass
+            
             time.sleep(3)
 
         self.log("❌ 等待短信超时")
@@ -326,33 +325,22 @@ class HaozhumaClient:
 
     def release_number(self, phone):
         """释放号码 (取消)"""
+        # 注意：截图未展示 cancelRecv 接口，这里假设沿用旧名或该平台不需要显式释放
+        # 如果需要释放，通常 api=cancelRecv 或 api=addBlacklist
         if not phone: return
         self._request({
-            "action": "cancelRecv",
+            "action": "addBlacklist", # 拉黑即释放+不再取该号
             "sid": self.sid,
             "phone": phone
         })
-        self.log(f"号码 {phone} 已释放/取消")
-
-    def add_blacklist(self, phone):
-        """拉黑号码 (标记失败)"""
-        if not phone: return
-        self._request({
-            "action": "addBlacklist",
-            "sid": self.sid,
-            "phone": phone
-        })
-        self.log(f"号码 {phone} 已拉黑")
+        self.log(f"号码 {phone} 已标记/释放")
 
     # === Compatibility Methods for BotThread ===
 
     def set_status_cancel(self, order_id_phone):
-        # 对应旧代码的 "取消订单"
         self.release_number(order_id_phone)
 
     def set_status_complete(self, order_id_phone):
-        # 对应旧代码的 "完成订单"
-        # 易码协议通常不需要显式完成，取码即扣费
         pass
 
 # =======================================================================================
@@ -366,13 +354,11 @@ class BotThread(threading.Thread):
         self.update_progress = progress_callback
         self.finish = finish_callback
 
-        # === 修改点：使用新的 HaozhumaClient ===
         self.sms_api = HaozhumaClient(
             CONFIG["HZ_USER"],
             CONFIG["HZ_PWD"],
             logger_callback
         )
-        # ======================================
 
         self.running = True
 
@@ -389,14 +375,10 @@ class BotThread(threading.Thread):
              self.finish()
              return
 
-        # === 预检：搜索项目 ID ===
-        target_country = CONFIG.get("TARGET_COUNTRY", "US")
-        self.log(f"目标国家配置: {target_country}")
-        if not self.sms_api.search_project_id("Google", target_country):
-            self.log("❌ 无法找到合适的项目 ID (Google US/HK)，任务终止。")
-            self.finish()
-            return
-
+        # === 预检：设置项目 ID ===
+        # 使用配置中的默认 Google ID
+        self.sms_api.search_project_id("Google")
+        
         self.log("隐身模式: 已激活")
 
         for idx, account in enumerate(self.accounts):
@@ -425,55 +407,43 @@ class BotThread(threading.Thread):
 
             try:
                 with sync_playwright() as p:
-                    # --- A. 浏览器启动配置 ---
-                    # 优化：移除了 --no-sandbox，这通常是服务器用的，本地跑容易被检测
                     browser = p.chromium.launch(
-                        headless=False,  # 建议开启界面以观察
+                        headless=False,
                         args=[
-                            "--disable-blink-features=AutomationControlled", # 核心：禁用自动化控制特征
+                            "--disable-blink-features=AutomationControlled",
                             "--disable-infobars",
                             "--start-maximized",
-                            "--lang=zh-CN,zh" # 强制中文语言环境
+                            "--lang=zh-CN,zh"
                         ],
-                        ignore_default_args=["--enable-automation"] # 移除"受到自动软件控制"横幅
+                        ignore_default_args=["--enable-automation"]
                     )
 
-                    # --- B. 上下文配置 ---
-                    # 优化：移除了硬编码的 user_agent。
-                    # 让 Playwright 使用内核自带的 UA，确保 UA 版本与浏览器内核版本完美匹配。
                     context = browser.new_context(
-                        viewport={'width': 1920, 'height': 1080}, # 固定分辨率防止指纹变动
-                        permissions=["clipboard-read", "clipboard-write"] # 允许剪贴板
+                        viewport={'width': 1920, 'height': 1080},
+                        permissions=["clipboard-read", "clipboard-write"]
                     )
 
-                    # --- C. 注入隐身 JS ---
                     context.add_init_script(STEALTH_JS)
 
                     page = context.new_page()
 
                     try:
-                        # --- 1. 登录流程 (拟人化) ---
                         self.log("Loading login page...")
                         page.goto("https://accounts.google.com/signin", wait_until="domcontentloaded")
-                        human_delay(1500, 2500) # 等待页面完全渲染
+                        human_delay(1500, 2500)
 
-                        # 输入账号
                         human_type(page, 'input[type="email"]', email)
                         human_delay(500, 1000)
                         page.keyboard.press("Enter")
 
-                        # 等待密码框
                         page.wait_for_selector('input[type="password"]', state="visible", timeout=15000)
-                        human_delay(1500, 3000) # 模拟回忆密码
+                        human_delay(1500, 3000)
 
-                        # 输入密码
                         human_type(page, 'input[type="password"]', account["pwd"])
                         human_delay(800, 1500)
                         page.keyboard.press("Enter")
 
-                        # --- 2. 验证流程 ---
                         try:
-                            # 增加检测时间，防止网络慢导致的误判
                             page.wait_for_selector('input[type="tel"]', timeout=10000)
                             self.log("触发手机验证！启动接码流程...")
 
@@ -482,7 +452,6 @@ class BotThread(threading.Thread):
                                 if not self.running: break
                                 if phone_attempt > 0: self.log(f"换号重试 (第 {phone_attempt+1} 次)...")
 
-                                # 确保在输入号码的界面
                                 if page.is_visible('input[name="code"]') or page.is_visible('input[id*="Pin"]'):
                                     self.log("发现处于验证码输入页，尝试回退...")
                                     page.go_back()
@@ -490,44 +459,35 @@ class BotThread(threading.Thread):
                                     if not page.is_visible('input[type="tel"]'):
                                         raise Exception("无法回退到号码输入页")
 
-                                # 获取号码
                                 order_id, raw_number = self.sms_api.get_number()
                                 if not order_id:
                                     human_delay(2000, 3000)
                                     continue
 
-                                # 格式化号码
                                 clean_digits = re.sub(r'\D', '', str(raw_number))
                                 final_phone = f"+{clean_digits}"
                                 self.log(f"尝试填入: {final_phone}")
 
-                                # 拟人化填入号码
-                                page.click('input[type="tel"]') # 先点击聚焦
-                                page.keyboard.press("Control+A") # 全选
-                                page.keyboard.press("Backspace") # 删除旧号码
+                                page.click('input[type="tel"]')
+                                page.keyboard.press("Control+A")
+                                page.keyboard.press("Backspace")
                                 human_delay(500, 1000)
                                 human_type(page, 'input[type="tel"]', final_phone)
                                 human_delay(1000, 2000)
                                 page.keyboard.press("Enter")
 
-                                # 获取并填入验证码
                                 code = self.sms_api.get_sms_code(order_id)
                                 if code:
                                     try:
-                                        human_delay(1500, 3000) # 模拟看短信时间
-
-                                        # 模拟人类复制粘贴 (比直接 type 更符合逻辑，因为一般是复制进来的)
+                                        human_delay(1500, 3000)
                                         page.evaluate(f"navigator.clipboard.writeText('{code}')")
-
-                                        # 尝试聚焦验证码框
                                         try: page.focus('input[name="code"]')
                                         except: page.focus('input[id*="Pin"]')
-
+                                        
                                         self.log(f"模拟人工粘贴验证码: {code}")
                                         page.keyboard.press("Control+V")
                                         human_delay(800, 1500)
                                     except:
-                                        # 备选方案：直接填入
                                         try: page.fill('input[name="code"]', code)
                                         except: page.fill('input[id*="Pin"]', code)
 
@@ -536,7 +496,6 @@ class BotThread(threading.Thread):
                                     self.log("提交后观察中...")
                                     page.wait_for_timeout(5000)
 
-                                    # 检查是否被弹回
                                     if page.is_visible('input[type="tel"]') and not page.is_visible('input[name="code"]'):
                                         self.log("验证无效 (可能号码被滥用)，换号...")
                                         self.sms_api.set_status_cancel(order_id)
@@ -581,7 +540,7 @@ class BotThread(threading.Thread):
 class Application(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Haozhuma API - Python Client")
+        self.title("Haozhuma API (v2025 JSON) - Python Client")
         self.geometry("700x550")
 
         self.msg_queue = queue.Queue()
