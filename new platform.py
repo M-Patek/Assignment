@@ -60,8 +60,8 @@ STEALTH_JS = """
 # =======================================================================================
 CONFIG = {
     # 豪猪网/豪猪云 新版API配置
-    "HZ_USER": "",  # 您的 API 账号
-    "HZ_PWD": "",   # 您的 API 密码
+    "HZ_USER": "018133145536af6f2546c6e5d97867fb85610dc57c5e2dd095016885b0e82d63",  # 您的 API 账号
+    "HZ_PWD": "753b4b715feae88d60e4d94d9d578776b3deadea5c91a3e45921060810d0571c",   # 您的 API 密码
     "HZ_BASE_URL": "https://api.haozhuma.com/sms/", # 更新为截图中的HTTPS地址
 
     "TARGET_COUNTRY": "US", # 目标国家 (逻辑保留，主要依赖项目ID)
@@ -89,6 +89,7 @@ def human_type(page, selector, text):
     try:
         page.focus(selector)
         for char in text:
+            # 这里的 text 可能包含空格 (如 "+86 192...")，page.type 能正常处理空格
             page.type(selector, char, delay=random.uniform(50, 150))
     except Exception as e:
         # 降级方案：如果逐字输入失败，回退到 fill 但保留前后延迟
@@ -463,9 +464,18 @@ class BotThread(threading.Thread):
                                 if not order_id:
                                     human_delay(2000, 3000)
                                     continue
-
+                                
+                                # 格式化号码逻辑 [FIXED]
                                 clean_digits = re.sub(r'\D', '', str(raw_number))
-                                final_phone = f"+{clean_digits}"
+                                
+                                # 针对中国号码(11位, 1开头)自动添加 +86
+                                # 如果是11位且以1开头，判断为缺少国家代码的中国号码
+                                if len(clean_digits) == 11 and clean_digits.startswith('1'):
+                                    final_phone = f"+86 {clean_digits}"
+                                else:
+                                    # 否则直接加 +, 假设号码自带国家代码
+                                    final_phone = f"+{clean_digits}"
+                                
                                 self.log(f"尝试填入: {final_phone}")
 
                                 page.click('input[type="tel"]')
