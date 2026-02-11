@@ -59,14 +59,14 @@ STEALTH_JS = """
 # === II. 全局配置区域 (Configuration) ===
 # =======================================================================================
 CONFIG = {
-    # 豪猪网/豪猪云 新版API配置
-    "HZ_USER": "018133145536af6f2546c6e5d97867fb85610dc57c5e2dd095016885b0e82d63",  # 您的 API 账号
-    "HZ_PWD": "753b4b715feae88d60e4d94d9d578776b3deadea5c91a3e45921060810d0571c",   # 您的 API 密码
-    "HZ_BASE_URL": "https://api.haozhuma.com/sms/", # 更新为截图中的HTTPS地址
+    # 新版API配置
+    "HZ_USER": "",  # 您的 API 账号
+    "HZ_PWD": "",   # 您的 API 密码
+    "HZ_BASE_URL": "https://api.haozhuma.com/sms/", # 更新的HTTPS地址
 
     "TARGET_COUNTRY": "US", # 目标国家 (逻辑保留，主要依赖项目ID)
     
-    # 默认 Google 项目 ID (参考截图6，如果搜索失败将使用此ID)
+    # 默认 Google 项目 ID
     "DEFAULT_GOOGLE_SID": "20706",
 
     "ACCOUNT_FILE": "accounts.txt",
@@ -200,7 +200,7 @@ class HaozhumaClient:
         搜索项目ID。由于新版API文档未展示 getProjects 接口，
         此处保留旧逻辑并增加 JSON 兼容，同时增加默认 ID 回退。
         """
-        # 1. 优先使用 Config 中的默认 ID (基于截图6: Google=20706)
+        # 1. 优先使用 Config 中的默认 ID
         if keyword.lower() == "google":
             default_sid = CONFIG.get("DEFAULT_GOOGLE_SID", "20706")
             self.sid = default_sid
@@ -248,7 +248,6 @@ class HaozhumaClient:
             "sid": self.sid
         }
         
-        # 可选参数 (根据截图4)
         # params["exclude"] = "170_171" # 排除虚拟号段示例
 
         self.log(f"[API] 正在获取号码 (项目ID: {self.sid})...")
