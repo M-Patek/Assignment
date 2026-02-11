@@ -135,7 +135,7 @@ class HaozhumaClient:
             if self.token and "token" not in params and params.get("action") != "login":
                 params["token"] = self.token
 
-            resp = requests.get(self.base_url, params=params, timeout=15)
+            resp = requests.get(self.base_url, params=params, timeout=15, proxies={"http": None, "https": None})
             text = resp.text.strip()
 
             # 简单的错误检查 (易码协议常见错误)
